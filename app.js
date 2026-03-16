@@ -4,21 +4,22 @@ class SplitWiseApp {
         this.friends = [];
         this.expenses = [];
 
-        // Works for localhost, 127.0.0.1, and deployed apps
-        const host = window.location.hostname;
-
-        if (host === "localhost" || host === "127.0.0.1") {
-            this.API_BASE = "http://localhost:3000/api";
-        } else {
-            this.API_BASE = "/api";
-        }
+        // API base
+        this.API_BASE = "/api";
 
         this.init();
     }
 
     async init() {
+
+        this.updateStatus('🔄 Loading from MongoDB...');
+
         await this.loadData();
+
         this.bindEvents();
+
+        this.updateStatus(`✅ Ready - ${this.friends.length} friends`);
+
         this.render();
     }
 
@@ -45,28 +46,17 @@ class SplitWiseApp {
 
     async apiRequest(endpoint, options = {}) {
 
-        try {
+        const response = await fetch(`${this.API_BASE}${endpoint}`, {
+            headers: { 'Content-Type': 'application/json' },
+            ...options
+        });
 
-            const response = await fetch(`${this.API_BASE}${endpoint}`, {
-                headers: { 'Content-Type': 'application/json' },
-                ...options
-            });
-
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                throw new Error(error.error || `HTTP ${response.status}`);
-            }
-
-            return await response.json();
-
-        } catch (error) {
-
-            console.error('API Error:', error);
-
-            this.fallbackToLocalStorage();
-
-            throw error;
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `HTTP ${response.status}`);
         }
+
+        return await response.json();
     }
 
     async loadData() {
@@ -78,21 +68,38 @@ class SplitWiseApp {
             this.friends = data.friends || [];
             this.expenses = data.expenses || [];
 
+            this.saveLocalBackup();
+
         } catch (error) {
 
             console.log('Using localStorage fallback');
 
-            this.loadLocalFallback();
+            this.friends =
+                JSON.parse(localStorage.getItem('splitwiseFriends')) || [];
+
+            this.expenses =
+                JSON.parse(localStorage.getItem('splitwiseExpenses')) || [];
         }
     }
 
-    loadLocalFallback() {
+    saveLocalBackup() {
 
-        this.friends =
-            JSON.parse(localStorage.getItem('splitwiseFriends')) || [];
+        localStorage.setItem(
+            'splitwiseFriends',
+            JSON.stringify(this.friends)
+        );
 
-        this.expenses =
-            JSON.parse(localStorage.getItem('splitwiseExpenses')) || [];
+        localStorage.setItem(
+            'splitwiseExpenses',
+            JSON.stringify(this.expenses)
+        );
+    }
+
+    updateStatus(message) {
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+            statusEl.textContent = message;
+        }
     }
 
     async addFriend(e) {
@@ -113,11 +120,11 @@ class SplitWiseApp {
                 body: JSON.stringify({ name })
             });
 
-            await this.loadData();
-
             document.getElementById('friendForm').reset();
 
             this.hideModal();
+
+            await this.loadData();
 
             this.render();
 
@@ -223,7 +230,6 @@ class SplitWiseApp {
             expense.participants.forEach(participant => {
 
                 if (participant !== expense.paidBy) {
-
                     balances[participant] -= share;
                 }
             });
@@ -260,7 +266,7 @@ class SplitWiseApp {
             <div class="friend-item" data-name="${friend}"
             onclick="app.toggleFriendSelection('${friend}')">
 
-                <span>${this.escapeHtml(friend)}</span>
+                <span>${friend}</span>
 
                 <button class="delete-btn"
                 onclick="event.stopPropagation();app.deleteFriend('${friend}')">
@@ -277,8 +283,7 @@ class SplitWiseApp {
 
         const select = document.getElementById('paidBy');
 
-        select.innerHTML =
-            '<option value="">Choose who paid...</option>';
+        select.innerHTML = '<option value="">Choose who paid...</option>';
 
         this.friends.forEach(friend => {
 
@@ -312,11 +317,7 @@ class SplitWiseApp {
 
         container.innerHTML = recent.map(expense => {
 
-            const date = expense.date
-                ? new Date(expense.date).toLocaleDateString()
-                : new Date().toLocaleDateString();
-
-            const numPeople = expense.participants?.length || 0;
+            const date = new Date(expense.date).toLocaleDateString();
 
             return `
                 <div class="expense-item">
@@ -324,13 +325,12 @@ class SplitWiseApp {
                     <div class="expense-info">
 
                         <div class="expense-desc">
-                            ${this.escapeHtml(expense.description)}
+                            ${expense.description}
                         </div>
 
                         <div class="expense-meta">
-                            <i class="fas fa-user-check"></i>
-                            Paid by <strong>${this.escapeHtml(expense.paidBy)}</strong>
-                            • ${numPeople} ${numPeople === 1 ? 'person' : 'people'}
+                            Paid by <strong>${expense.paidBy}</strong>
+                            • ${expense.participants.length} people
                             • ${date}
                         </div>
 
@@ -351,43 +351,17 @@ class SplitWiseApp {
 
         const container = document.getElementById('balanceList');
 
-        const balanceEntries =
-            Object.entries(balances)
-                .filter(([_, balance]) => Math.abs(balance) > 0.01)
-                .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a));
-
-        if (balanceEntries.length === 0) {
-
-            container.innerHTML = `
-                <div style="text-align:center;padding:40px;color:#28a745;">
-                    <i class="fas fa-check-circle" style="font-size:4rem;margin-bottom:16px;"></i>
-                    <h4>🎉 Perfectly Balanced!</h4>
-                    <p>Everyone has settled up</p>
-                </div>
-            `;
-
-            return;
-        }
-
-        container.innerHTML = balanceEntries.map(([name, balance]) => {
+        container.innerHTML = Object.entries(balances).map(([name, balance]) => {
 
             const isPositive = balance > 0;
 
-            const absBalance = Math.abs(balance).toFixed(2);
-
-            const className =
-                isPositive ? 'balance-positive' : 'balance-negative';
-
-            const status =
-                isPositive ? 'is owed' : 'owes';
-
             return `
-                <div class="balance-item ${className}">
+                <div class="balance-item ${isPositive ? 'balance-positive' : 'balance-negative'}">
 
-                    <span>${this.escapeHtml(name)} ${status}</span>
+                    <span>${name}</span>
 
                     <strong>
-                        ${isPositive ? '+' : '-'}₹${absBalance}
+                        ${isPositive ? '+' : '-'}₹${Math.abs(balance).toFixed(2)}
                     </strong>
 
                 </div>
@@ -407,28 +381,6 @@ class SplitWiseApp {
         document.getElementById('friendModal').style.display = 'none';
 
         document.getElementById('friendForm').reset();
-    }
-
-    escapeHtml(text) {
-
-        const div = document.createElement('div');
-
-        div.textContent = text;
-
-        return div.innerHTML;
-    }
-
-    fallbackToLocalStorage() {
-
-        localStorage.setItem(
-            'splitwiseFriends',
-            JSON.stringify(this.friends)
-        );
-
-        localStorage.setItem(
-            'splitwiseExpenses',
-            JSON.stringify(this.expenses)
-        );
     }
 }
 
