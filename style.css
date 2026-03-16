@@ -321,7 +321,7 @@ body {
 .name {
     text-align: center;
     font-size: 18px;
-    color: #ffffff;
+    color: #fdff8a;
     font-weight: 600;
     animation: float 3s ease-in-out infinite;
 }
