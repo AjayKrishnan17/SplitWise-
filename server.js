@@ -10,21 +10,16 @@ const PORT = process.env.PORT || 3000;
 
 /* -------------------- Middleware -------------------- */
 
-app.use(cors({
-    origin: "*"
-}));
+app.use(cors({ origin: "*" }));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-
-/* -------------------- MongoDB Connection -------------------- */
-
-mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-})
-.then(() => console.log("✅ MongoDB Connected"))
-.catch(err => console.error("❌ MongoDB Error:", err));
+/* Request logger */
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+});
 
 
 /* -------------------- Schemas -------------------- */
@@ -170,7 +165,7 @@ app.delete("/api/friends/:name", async (req, res) => {
 
     try {
 
-        const name = req.params.name;
+        const name = decodeURIComponent(req.params.name);
 
         await Friend.deleteOne({ name });
 
@@ -300,11 +295,6 @@ app.get("/api/balances", async (req, res) => {
 });
 
 
-/* -------------------- Serve Frontend -------------------- */
-
-app.use(express.static("frontend"));
-
-
 /* -------------------- Health Check -------------------- */
 
 app.get("/api/health", (req, res) => {
@@ -317,11 +307,37 @@ app.get("/api/health", (req, res) => {
 });
 
 
-/* -------------------- Start Server -------------------- */
+/* -------------------- Serve Frontend -------------------- */
 
-app.listen(PORT, () => {
+app.use(express.static("frontend"));
 
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📱 Frontend available at http://localhost:${PORT}`);
+
+/* -------------------- Global Error Handler -------------------- */
+
+app.use((err, req, res, next) => {
+
+    console.error("❌ Server Error:", err);
+
+    res.status(500).json({
+        error: "Internal Server Error"
+    });
 
 });
+
+
+/* -------------------- MongoDB Connection + Start Server -------------------- */
+
+mongoose.connect(process.env.MONGODB_URI)
+.then(() => {
+
+    console.log("✅ MongoDB Connected");
+
+    app.listen(PORT, () => {
+
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+        console.log(`📱 Frontend available at http://localhost:${PORT}`);
+
+    });
+
+})
+.catch(err => console.error("❌ MongoDB Error:", err));
